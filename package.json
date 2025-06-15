@@ -1,0 +1,49 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@benjeau/react-native-draw": "^0.8.3",
+    "@expo/metro-runtime": "~5.0.4",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-native-community/netinfo": "11.4.1",
+    "@react-native-picker/picker": "^2.11.0",
+    "@react-native-voice/voice": "^3.2.4",
+    "@terrylinla/react-native-sketch-canvas": "^0.8.0",
+    "buffer": "^6.0.3",
+    "expo": "53.0.11",
+    "expo-blur": "~14.1.5",
+    "expo-checkbox": "~4.1.4",
+    "expo-dev-client": "~5.2.0",
+    "expo-file-system": "~18.1.10",
+    "expo-image-picker": "~16.1.4",
+    "expo-linear-gradient": "~14.1.5",
+    "expo-print": "~14.1.4",
+    "expo-sharing": "~13.1.5",
+    "expo-status-bar": "~2.2.3",
+    "lottie-react-native": "7.2.2",
+    "prop-types": "^15.8.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.3",
+    "react-native-app-auth": "^8.0.3",
+    "react-native-flash-message": "^0.4.2",
+    "react-native-signature-canvas": "^4.7.4",
+    "react-native-svg": "15.11.2",
+    "react-native-text-recognition": "^1.0.2",
+    "react-native-toast-message": "^2.3.0",
+    "react-native-web": "^0.20.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@expo/config-plugins": "~10.0.0"
+  },
+  "private": true
+}

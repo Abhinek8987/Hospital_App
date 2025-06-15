@@ -1,0 +1,238 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  Button,
+  StyleSheet,
+  ScrollView,
+  Modal,
+  TouchableOpacity,
+  FlatList,
+  Dimensions,
+  ImageBackground,
+  Alert,
+  Animated,
+  Easing
+} from 'react-native';
+import CheckBox from 'expo-checkbox';
+import { Picker } from '@react-native-picker/picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
+import { shareAsync } from 'expo-sharing';
+import { MaterialIcons } from '@expo/vector-icons';
+import { Canvas, Drawing, ToolPicker } from '@benjeau/react-native-draw';
+
+const App = () => {
+  // User roles and authentication
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [balloonAnim] = useState(new Animated.Value(0));
+  const [users, setUsers] = useState([
+    { id: 1, username: 'nurse1', password: 'nurse123', role: 'Nurse' },
+    { id: 2, username: 'doctor1', password: 'doctor123', role: 'Doctor' },
+  ]);
+
+  // Drawing state
+  const [showDrawingCanvas, setShowDrawingCanvas] = useState(false);
+  const [drawingData, setDrawingData] = useState(null);
+
+  // Drawing functions
+  const handleOpenDrawingCanvas = () => {
+    setShowDrawingCanvas(true);
+  };
+
+  const handleSaveDrawing = (data) => {
+    setDrawingData(data);
+    setShowDrawingCanvas(false);
+  };
+
+  // Patient data
+  const [patients, setPatients] = useState([]);
+  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [currentPatientId, setCurrentPatientId] = useState('');
+
+  // Existing functions...
+
+  const renderErForm = () => {
+    return (
+      <ScrollView contentContainerStyle={styles.formContainer}>
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>Emergency Patient Registration</Text>
+          <Text style={styles.patientId}>Patient ID: {currentPatientId}</Text>
+          
+          {/* Add this button to toggle drawing mode */}
+          <TouchableOpacity 
+            style={styles.drawingButton}
+            onPress={handleOpenDrawingCanvas}
+          >
+            <LinearGradient
+              colors={['#FF9800', '#F57C00']}
+              style={styles.gradientButton}
+            >
+              <Text style={styles.buttonText}>
+                {drawingData ? 'Edit Handwritten Form' : 'Fill Form with Handwriting'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          {/* Show preview if drawing exists */}
+          {drawingData && (
+            <View style={styles.drawingPreviewContainer}>
+              <Text style={styles.drawingPreviewText}>Handwritten Form Preview:</Text>
+              <Drawing 
+                drawing={drawingData}
+                style={styles.drawingPreview}
+              />
+              <TouchableOpacity 
+                style={styles.clearDrawingButton}
+                onPress={() => setDrawingData(null)}
+              >
+                <Text style={styles.clearDrawingButtonText}>Clear Handwriting</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Rest of your existing form components */}
+
+          {/* Add this modal for the drawing canvas */}
+          <Modal
+            visible={showDrawingCanvas}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setShowDrawingCanvas(false)}
+          >
+            <View style={styles.drawingModalContainer}>
+              <Text style={styles.drawingModalTitle}>Fill Form with Handwriting</Text>
+              
+              <Canvas
+                style={styles.canvas}
+                onEnd={(data) => setDrawingData(data)}
+              >
+                <Drawing
+                  drawing={drawingData}
+                  color="#000"
+                  thickness={3}
+                />
+              </Canvas>
+              
+              <ToolPicker style={styles.toolPicker} />
+              
+              <View style={styles.drawingButtonContainer}>
+                <TouchableOpacity 
+                  style={[styles.drawingActionButton, { backgroundColor: '#f44336' }]}
+                  onPress={() => setShowDrawingCanvas(false)}
+                >
+                  <Text style={styles.drawingActionButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.drawingActionButton, { backgroundColor: '#4CAF50' }]}
+                  onPress={() => handleSaveDrawing(drawingData)}
+                >
+                  <Text style={styles.drawingActionButtonText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </View>
+      </ScrollView>
+    );
+  };
+
+  // Existing render functions...
+
+  const styles = StyleSheet.create({
+    drawingButton: {
+      marginBottom: 20,
+      borderRadius: 5,
+      overflow: 'hidden',
+    },
+    drawingPreviewContainer: {
+      marginBottom: 20,
+      padding: 10,
+      backgroundColor: '#f9f9f9',
+      borderRadius: 5,
+      borderWidth: 1,
+      borderColor: '#eee',
+    },
+    drawingPreviewText: {
+      fontSize: 14,
+      color: '#666',
+      marginBottom: 5,
+    },
+    drawingPreview: {
+      height: 150,
+      backgroundColor: '#fff',
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 5,
+    },
+    clearDrawingButton: {
+      marginTop: 10,
+      padding: 8,
+      backgroundColor: '#f5f5f5',
+      borderRadius: 5,
+      alignItems: 'center',
+    },
+    clearDrawingButtonText: {
+      color: '#f44336',
+      fontSize: 14,
+    },
+    drawingModalContainer: {
+      flex: 1,
+      padding: 20,
+      backgroundColor: '#fff',
+    },
+    drawingModalTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      color: '#333',
+      marginBottom: 15,
+      textAlign: 'center',
+    },
+    canvas: {
+      flex: 1,
+      backgroundColor: '#f9f9f9',
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 5,
+      marginBottom: 10,
+    },
+    toolPicker: {
+      marginBottom: 15,
+    },
+    drawingButtonContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    drawingActionButton: {
+      flex: 1,
+      marginHorizontal: 5,
+      padding: 15,
+      borderRadius: 5,
+      alignItems: 'center',
+    },
+    drawingActionButtonText: {
+      color: 'white',
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    // Existing styles...
+  });
+
+  return (
+    <View style={styles.container}>
+      {/* Your existing app content */}
+    </View>
+  );
+};
+
+export default App;

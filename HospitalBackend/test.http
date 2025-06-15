@@ -1,0 +1,74 @@
+### Register test user
+POST http://localhost:5000/api/users/register
+Content-Type: application/json
+
+{
+  "username": "nurse1",
+  "password": "123456",
+  "name": "Nurse Priya",
+  "role": "Nurse"
+}
+
+
+### Register a Doctor
+POST http://172.16.0.9:5000/api/users/register
+Content-Type: application/json
+
+{
+  "username": "doctor1",
+  "password": "123456",
+  "name": "Dr. Ahuja",
+  "role": "Doctor"
+}
+
+
+### Add a patient
+POST http://localhost:5000/api/patients
+Content-Type: application/json
+
+{
+  "name": "Ravi Kumar",
+  "age": 45,
+  "symptoms": "Fever and cough",
+  "condition": "Moderate",
+  "status": "Admitted",
+  "emergency_contact": "9876543210",
+  "insurance_provider": "HDFC",
+  "policy_number": "HDFC-1234",
+  "doctor_id": 2
+}
+
+### Register test user
+POST http://192.168.8.128:5000/api/users/register
+Content-Type: application/json
+
+{
+  "username": "nurse58",
+  "password": "123456",
+  "name": "Nurse Priya",
+  "role": "Nurse"
+}
+
+
+### Register test user
+POST http://192.168.8.128:5000/api/users/register
+Content-Type: application/json
+
+{
+  "username": "nurs",
+  "password": "123456",
+  "name": "Nurse Priya",
+  "role": "Nurse"
+}
+
+
+### Register a Doctor
+POST http://192.168.8.128:5000/api/users/register
+Content-Type: application/json
+
+{
+  "username": "doctor2",
+  "password": "123456",
+  "name": "Dr. Abhinek",
+  "role": "Doctor"
+}
