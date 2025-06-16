@@ -84,9 +84,9 @@ const signatureRef = useRef(null);
 
 const handleSignatureSubmit = () => {
   const demoData = {
-    ABHI: '22',
-    ANUSHKA: '34',
-    MUKESH: '28',
+    ABHI: '21',
+    ANUSHKA: '22',
+    YUKTHA: '22',
     RAM: '19',
     MOHIT: '65',
   };
@@ -264,26 +264,40 @@ const cancelHandwritingInput = () => {
     return filtered;
   };
 
-  const fetchPatientsFromBackend = async () => {
+  const fetchPatientTimelineFromBackend = async (patientDbId) => {
   try {
-    const response = await fetch("http://192.168.8.128:5000/api/patients");
+    const res = await fetch(`http://192.168.230.128:5000/api/patients/timeline/${patientDbId}`);
+    if (!res.ok) throw new Error('Failed to fetch timeline');
+    return await res.json();
+  } catch (err) {
+    console.error("❌ Timeline fetch error:", err.message);
+    return [];
+  }
+};
+
+const fetchPatientsFromBackend = async () => {
+  try {
+    const response = await fetch("http://192.168.230.128:5000/api/patients");
     const data = await response.json();
 
     if (!Array.isArray(data)) {
       throw new Error('Invalid data format from server');
     }
 
-    const transformed = data.map(p => {
-      const id = p.patientId || p.patient_id || 'UNKNOWN';
-      return {
-        ...p,
-        patientId: id,
-        timeline: patientTimelines[id] || []
-      };
-    });
+    const patientsWithTimeline = await Promise.all(
+      data.map(async (p) => {
+        const timeline = await fetchPatientTimelineFromBackend(p.id);
+        return {
+          ...p,
+          timeline,
+          patientId: p.patient_id, // Your readable ID
+          id: p.id                 // DB primary key
+        };
+      })
+    );
 
-    setPatients(transformed);
-    console.log("🩺 Patients fetched:", transformed.length);
+    setPatients(patientsWithTimeline);
+    console.log("🩺 Patients + Timelines loaded:", patientsWithTimeline.length);
   } catch (error) {
     console.error("❌ Failed to fetch patients:", error.message);
     Toast.show({
@@ -294,7 +308,6 @@ const cancelHandwritingInput = () => {
     });
   }
 };
-
 
 
 
@@ -369,7 +382,7 @@ useEffect(() => {
   try {
     console.log("🔁 Trying to log in...");
 
-    const response = await fetch("http://192.168.8.128:5000/api/users/login", {
+    const response = await fetch("http://192.168.230.128:5000/api/users/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -473,18 +486,6 @@ const handleErFormSubmit = async () => {
   const generatedPatientId = generatePatientId();
   setCurrentPatientId(generatedPatientId);
 
-  // ✅ Add Registered entry to local timeline
-  setPatientTimelines(prev => ({
-    ...prev,
-    [generatedPatientId]: [
-      {
-        action: 'Registered',
-        timestamp: new Date().toISOString(),
-        by: currentUser.name || currentUser.username
-      }
-    ]
-  }));
-
   let insuranceProvider = erForm.insuranceProvider;
   if (
     erForm.hasInsurance === 'yes' &&
@@ -507,27 +508,38 @@ const handleErFormSubmit = async () => {
   };
 
   try {
-    const response = await fetch("http://192.168.8.128:5000/api/patients", {
+    // ✅ Register patient first
+    const response = await fetch("http://192.168.230.128:5000/api/patients", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
 
     const data = await response.json();
 
     if (response.ok) {
-      // ✅ Add new patient to local patients[] to preserve timeline
       const newPatient = {
-        ...payload,
-        patientId: generatedPatientId,
+        ...data.patient,
+        patientId: data.patient.patient_id,
+        id: data.patient.id, // ✅ DB primary key required
         doctorName: null,
         prescriptions: '',
         diagnosis: '',
         action: ''
       };
+
       setPatients(prev => [...prev, newPatient]);
+
+      // ✅ Add timeline entry using DB ID (after patient is saved)
+      await fetch("http://192.168.230.128:5000/api/patients/timeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patient_db_id: newPatient.id,
+          action: 'Registered',
+          performed_by: currentUser.name || currentUser.username
+        })
+      });
 
       Alert.alert(
         "✅ Patient Registered Successfully!",
@@ -569,57 +581,16 @@ const handleErFormSubmit = async () => {
 
 
 
+
+
   // Diagnosis form submission
-  const handleDiagnosisSubmit = async () => {
+const handleDiagnosisSubmit = async () => {
   if (!diagnosisForm.notes) {
     showAlert('Error', 'Please enter diagnosis notes', false);
     return;
   }
 
-  // ✅ Step 1: Update patient locally
-  const updatedPatients = patients.map(p =>
-    p.patientId === selectedPatient.patientId
-      ? {
-          ...p,
-          diagnosis: diagnosisForm.notes,
-          observations: diagnosisForm.observations,
-          status: 'Diagnosed',
-          doctorName: currentUser.name || currentUser.username,
-          tempUpdated: Date.now(), // ✅ Used only for sorting on frontend
-          timeline: [
-            ...(p.timeline || []),
-            {
-              action: 'Diagnosed',
-              timestamp: new Date().toISOString(),
-              by: currentUser.name || currentUser.username,
-              notes: diagnosisForm.notes
-            }
-          ]
-        }
-      : p
-  );
-  setPatientTimelines(prev => ({
-  ...prev,
-  [selectedPatient.patientId]: [
-    ...(prev[selectedPatient.patientId] || []),
-    {
-      action: 'Diagnosed',
-      timestamp: new Date().toISOString(),
-      by: currentUser.name || currentUser.username,
-      notes: diagnosisForm.notes
-    }
-  ]
-}));
-
-
-  // ✅ Step 2: Sort so the updated patient goes to the bottom
-  updatedPatients.sort((a, b) => (a.tempUpdated || 0) - (b.tempUpdated || 0));
-  setPatients(updatedPatients);
-
-  // ✅ Step 3: Clear form
-  setDiagnosisForm({ notes: '', observations: '' });
-
-  // ✅ Step 4: Build safe update body for backend
+  // ✅ Step 1: Build safe update body for backend
   const body = {
     diagnosis: diagnosisForm.notes,
     observations: diagnosisForm.observations,
@@ -627,6 +598,7 @@ const handleErFormSubmit = async () => {
     doctor_name: currentUser.name || currentUser.username
   };
 
+  // ✅ Preserve existing prescription/discharge info if already filled
   if (selectedPatient?.prescriptions) {
     body.prescriptions = selectedPatient.prescriptions;
   }
@@ -637,204 +609,255 @@ const handleErFormSubmit = async () => {
 
   console.log("📤 Sending diagnosis update:", body);
 
-  // ✅ Step 5: Send to backend
-  await fetch(`http://192.168.8.128:5000/api/patients/${selectedPatient.patientId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  try {
+    // ✅ Step 2: Send update to patients table
+    await fetch(`http://192.168.230.128:5000/api/patients/${selectedPatient.patientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
 
-  // ✅ Step 6: Add notification, reset screen
-  const newNotification = {
-    id: Date.now(),
-    message: `Diagnosis completed for patient ${selectedPatient.name}`,
-    timestamp: new Date().toISOString(),
-    patientId: selectedPatient.patientId
-  };
+    // ✅ Step 3: Post to timeline table
+    await fetch("http://192.168.230.128:5000/api/patients/timeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patient_db_id: selectedPatient.id, // DB primary key
+        action: 'Diagnosed',
+        performed_by: currentUser.name || currentUser.username,
+        notes: diagnosisForm.notes
+      })
+    });
 
-  setNotifications([...notifications, newNotification]);
-  setSelectedPatient(null);
-  showAlert('Success', 'Diagnosis saved successfully');
-  setActiveScreen('doctorDashboard');
+    // ✅ Step 4: Update frontend state
+    const updatedPatients = patients.map(p =>
+      p.patientId === selectedPatient.patientId
+        ? {
+            ...p,
+            diagnosis: diagnosisForm.notes,
+            observations: diagnosisForm.observations,
+            status: 'Diagnosed',
+            doctorName: currentUser.name || currentUser.username,
+            tempUpdated: Date.now()
+          }
+        : p
+    );
+
+    updatedPatients.sort((a, b) => (a.tempUpdated || 0) - (b.tempUpdated || 0));
+    setPatients(updatedPatients);
+
+    // ✅ Step 5: UI feedback and cleanup
+    setDiagnosisForm({ notes: '', observations: '' });
+
+    const newNotification = {
+      id: Date.now(),
+      message: `Diagnosis completed for patient ${selectedPatient.name}`,
+      timestamp: new Date().toISOString(),
+      patientId: selectedPatient.patientId
+    };
+
+    setNotifications([...notifications, newNotification]);
+    setSelectedPatient(null);
+    showAlert('Success', 'Diagnosis saved successfully');
+    setActiveScreen('doctorDashboard');
+  } catch (err) {
+    console.error("❌ Diagnosis submission failed:", err.message);
+    showAlert('Error', 'Failed to save diagnosis. Please try again.');
+  }
 };
 
 
 
   // Prescription form submission
-  const handlePrescriptionSubmit = async () => {
+const handlePrescriptionSubmit = async () => {
   if (!prescriptionForm.meds) {
     showAlert('Error', 'Please enter medications', false);
     return;
   }
 
+  // ✅ Step 1: Format full prescription
   const fullPrescription = prescriptionForm.meds +
     (prescriptionForm.tests ? `\nTests: ${prescriptionForm.tests}` : '');
 
-  const updatedPatients = patients.map(p =>
-    p.patientId === selectedPatient.patientId
-      ? {
-          ...p,
-          prescriptions: fullPrescription,
-          status: 'Prescribed',
-          timeline: [
-            ...(p.timeline || []),
-            {
-              action: 'Prescribed',
-              timestamp: new Date().toISOString(),
-              by: currentUser.name || currentUser.username,
-              medications: prescriptionForm.meds,
-              tests: prescriptionForm.tests
-            }
-          ]
-        }
-      : p
-  );
-
-  setPatients(updatedPatients);
-  setPatientTimelines(prev => ({
-  ...prev,
-  [selectedPatient.patientId]: [
-    ...(prev[selectedPatient.patientId] || []),
-    {
-      action: 'Prescribed',
-      timestamp: new Date().toISOString(),
-      by: currentUser.name || currentUser.username,
-      medications: prescriptionForm.meds,
-      tests: prescriptionForm.tests
-    }
-  ]
-}));
-
-  setPrescriptionForm({ meds: '', tests: '' });
-
-  // ✅ Fix: Preserve previous diagnosis & observations
+  // ✅ Step 2: Preserve previous diagnosis/observations
   const prevDiagnosis = selectedPatient.diagnosis;
   const prevObservations = selectedPatient.observations;
 
-  await fetch(`http://192.168.8.128:5000/api/patients/${selectedPatient.patientId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prescriptions: fullPrescription,
-      status: 'Prescribed',
-      doctor_name: currentUser.name || currentUser.username,
-      diagnosis: prevDiagnosis || null,
-      observations: prevObservations || null
-    })
-  });
+  try {
+    // ✅ Step 3: Update patient record in DB
+    await fetch(`http://192.168.230.128:5000/api/patients/${selectedPatient.patientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prescriptions: fullPrescription,
+        status: 'Prescribed',
+        doctor_name: currentUser.name || currentUser.username,
+        diagnosis: prevDiagnosis || null,
+        observations: prevObservations || null
+      })
+    });
 
-  const newNotification = {
-    id: Date.now(),
-    message: `Prescription created for patient ${selectedPatient.name}`,
-    timestamp: new Date().toISOString(),
-    patientId: selectedPatient.patientId
-  };
+    // ✅ Step 4: Add to timeline
+    await fetch("http://192.168.230.128:5000/api/patients/timeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        patient_db_id: selectedPatient.id, // actual DB ID
+        action: 'Prescribed',
+        performed_by: currentUser.name || currentUser.username,
+        medications: prescriptionForm.meds,
+        tests: prescriptionForm.tests
+      })
+    });
 
-  setNotifications([...notifications, newNotification]);
-  setSelectedPatient(null);
-  showAlert('Success', 'Prescription saved successfully');
-  setActiveScreen('doctorDashboard');
+    // ✅ Step 5: Update frontend state (optional but helpful)
+    const updatedPatients = patients.map(p =>
+      p.patientId === selectedPatient.patientId
+        ? {
+            ...p,
+            prescriptions: fullPrescription,
+            status: 'Prescribed',
+            doctorName: currentUser.name || currentUser.username,
+            tempUpdated: Date.now()
+          }
+        : p
+    );
+
+    updatedPatients.sort((a, b) => (a.tempUpdated || 0) - (b.tempUpdated || 0));
+    setPatients(updatedPatients);
+
+    // ✅ Step 6: Reset UI
+    setPrescriptionForm({ meds: '', tests: '' });
+
+    const newNotification = {
+      id: Date.now(),
+      message: `Prescription created for patient ${selectedPatient.name}`,
+      timestamp: new Date().toISOString(),
+      patientId: selectedPatient.patientId
+    };
+
+    setNotifications([...notifications, newNotification]);
+    setSelectedPatient(null);
+    showAlert('Success', 'Prescription saved successfully');
+    setActiveScreen('doctorDashboard');
+
+  } catch (err) {
+    console.error("❌ Prescription save failed:", err.message);
+    showAlert('Error', 'Failed to save prescription. Please try again.');
+  }
 };
+
+
 
 
   // Action form submission with undo functionality
   const handleActionSubmit = async () => {
   const action = actionForm.action;
 
-  const updatedPatients = patients.map(p =>
-    p.patientId === selectedPatient.patientId
-      ? {
-          ...p,
-          action: action,
-          status: action,
-          dischargeDate: action === 'Discharge' ? new Date().toISOString() : null,
-          timeline: [
-            ...(p.timeline || []),
-            {
-              action: action,
-              timestamp: new Date().toISOString(),
-              by: currentUser.name || currentUser.username,
-              specialist:
-                action === 'Refer to Specialist'
-                  ? specialistMapping[selectedPatient.symptoms] || 'Specialist'
-                  : null
-            }
-          ]
-        }
-      : p
-  );
-
-  setLastAction({
-    previousPatients: patients,
-    patientId: selectedPatient.id,
-    action: action
-  });
-
-  setPatients(updatedPatients);
-  setPatientTimelines(prev => ({
-  ...prev,
-  [selectedPatient.patientId]: [
-    ...(prev[selectedPatient.patientId] || []),
-    {
-      action: action,
-      timestamp: new Date().toISOString(),
-      by: currentUser.name || currentUser.username,
-      specialist:
-        action === 'Refer to Specialist'
-          ? specialistMapping[selectedPatient.symptoms] || 'Specialist'
-          : null
-    }
-  ]
-}));
-
-  setActionForm({ action: 'Discharge' });
-
-  // ✅ FIX: Preserve diagnosis, prescriptions, observations
+  // ✅ Step 1: Preserve previous values
   const prevDiagnosis = selectedPatient.diagnosis;
   const prevObservations = selectedPatient.observations;
   const prevPrescriptions = selectedPatient.prescriptions;
 
-  await fetch(`http://192.168.8.128:5000/api/patients/${selectedPatient.patientId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  // ✅ Step 2: Determine specialist (if applicable)
+  const specialistName =
+    action === 'Refer to Specialist'
+      ? specialistMapping[selectedPatient.symptoms] || 'Specialist'
+      : null;
+
+  try {
+    // ✅ Step 3: Update patient record in database
+    await fetch(`http://192.168.230.128:5000/api/patients/${selectedPatient.patientId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: action,
+        status: action,
+        doctor_name: currentUser.name || currentUser.username,
+        discharge_date: action === 'Discharge' ? new Date().toISOString() : null,
+        diagnosis: prevDiagnosis || null,
+        observations: prevObservations || null,
+        prescriptions: prevPrescriptions || null
+      })
+    });
+
+    // ✅ Step 4: Build timeline payload WITHOUT sending nulls
+    const timelinePayload = {
+      patient_db_id: selectedPatient.id,
       action: action,
-      status: action,
-      doctor_name: currentUser.name || currentUser.username,
-      discharge_date: action === 'Discharge' ? new Date().toISOString() : null,
-      diagnosis: prevDiagnosis || null,
-      observations: prevObservations || null,
-      prescriptions: prevPrescriptions || null
-    })
-  });
+      performed_by: currentUser.name || currentUser.username
+    };
 
-  Toast.show({
-    type: 'info',
-    text1: `Patient marked as ${action}`,
-    text2: 'Tap to undo this action',
-    position: 'bottom',
-    visibilityTime: 10000,
-    onPress: handleUndoAction
-  });
+    if (specialistName) {
+      timelinePayload.specialist = specialistName;
+    }
 
-  if (undoTimeoutRef.current) {
-    clearTimeout(undoTimeoutRef.current);
+    // ✅ Step 5: Add to timeline (backend will merge all previous fields)
+    await fetch("http://192.168.230.128:5000/api/patients/timeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(timelinePayload)
+    });
+
+    // ✅ Step 6: Update local patient state
+    const updatedPatients = patients.map(p =>
+      p.patientId === selectedPatient.patientId
+        ? {
+            ...p,
+            action: action,
+            status: action,
+            dischargeDate: action === 'Discharge' ? new Date().toISOString() : null,
+            doctorName: currentUser.name || currentUser.username,
+            tempUpdated: Date.now()
+          }
+        : p
+    );
+
+    updatedPatients.sort((a, b) => (a.tempUpdated || 0) - (b.tempUpdated || 0));
+    setPatients(updatedPatients);
+
+    // ✅ Step 7: Store undo action
+    setLastAction({
+      previousPatients: patients,
+      patientId: selectedPatient.id,
+      action: action
+    });
+
+    setActionForm({ action: 'Discharge' });
+
+    Toast.show({
+      type: 'info',
+      text1: `Patient marked as ${action}`,
+      text2: 'Tap to undo this action',
+      position: 'bottom',
+      visibilityTime: 10000,
+      onPress: handleUndoAction
+    });
+
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+    }
+
+    undoTimeoutRef.current = setTimeout(() => {
+      setLastAction(null);
+    }, 10000);
+
+    // ✅ Step 8: Notify and return to dashboard
+    const newNotification = {
+      id: Date.now(),
+      message: `Patient ${selectedPatient.name} marked as ${action}`,
+      timestamp: new Date().toISOString(),
+      patientId: selectedPatient.patientId
+    };
+
+    setNotifications([...notifications, newNotification]);
+    setSelectedPatient(null);
+    setActiveScreen('doctorDashboard');
+
+  } catch (err) {
+    console.error("❌ Action submit failed:", err.message);
+    showAlert('Error', 'Failed to perform patient action. Please try again.');
   }
-
-  undoTimeoutRef.current = setTimeout(() => {
-    setLastAction(null);
-  }, 10000);
-
-  const newNotification = {
-    id: Date.now(),
-    message: `Patient ${selectedPatient.name} marked as ${action}`,
-    timestamp: new Date().toISOString(),
-    patientId: selectedPatient.patientId
-  };
-
-  setNotifications([...notifications, newNotification]);
-  setSelectedPatient(null);
-  setActiveScreen('doctorDashboard');
 };
 
 
@@ -1044,7 +1067,7 @@ setTimeout(() => setShowPdfCelebration(false), 3000);
 
   // Render timeline for a patient
   const renderTimeline = (patient) => {
-  const timeline = patientTimelines[patient.patientId] || [];
+  const timeline = patient.timeline || [];
   if (timeline.length === 0) return null;
 
   return (
@@ -1060,7 +1083,7 @@ setTimeout(() => setShowPdfCelebration(false), 3000);
             <Text style={styles.timelineTime}>
               {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
-            <Text style={styles.timelineBy}>By: {item.by}</Text>
+            <Text style={styles.timelineBy}>By: {item.performed_by}</Text>
             {item.notes && <Text style={styles.timelineNotes}>Notes: {item.notes}</Text>}
             {item.medications && <Text style={styles.timelineNotes}>Medications: {item.medications}</Text>}
             {item.tests && <Text style={styles.timelineNotes}>Tests: {item.tests}</Text>}
