@@ -5,8 +5,8 @@ const app = express();
 const PORT = 5000;
 
 // ✅ Route imports
-const patientRoutes = require('./routes/patientRoutes');
-const userRoutes = require('./routes/usersRoutes'); // for login/register
+const patientRoutes = require('./routes/patientRoutes');  // Now handles patients + timeline + notifications
+const userRoutes = require('./routes/usersRoutes');       // Your existing login/register routes
 
 // ✅ Middleware
 app.use(cors());

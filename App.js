@@ -243,26 +243,25 @@ const cancelHandwritingInput = () => {
 
   // Filter patients based on search and filter criteria
   const getFilteredPatients = () => {
-    let filtered = patients;
-    
-    // Apply status filter
-    if (statusFilter !== 'All') {
-      filtered = filtered.filter(patient => patient.status === statusFilter);
-    }
-    
-    // Apply search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(patient => 
-        patient.name.toLowerCase().includes(query) ||
-        patient.patientId.toLowerCase().includes(query) ||
-        patient.symptoms.toLowerCase().includes(query) ||
-        (patient.doctorName && patient.doctorName.toLowerCase().includes(query))
-      );
-    }
-    
-    return filtered;
-  };
+  let filtered = patients;
+
+  if (statusFilter !== 'All') {
+    filtered = filtered.filter(patient => patient.status === statusFilter);
+  }
+
+  if (searchQuery) {
+    const query = searchQuery.toLowerCase();
+    filtered = filtered.filter(patient => 
+      (patient.name || '').toLowerCase().includes(query) ||
+      (patient.patientId || '').toLowerCase().includes(query) ||
+      (patient.symptoms || '').toLowerCase().includes(query) ||
+      (patient.doctorName || '').toLowerCase().includes(query)
+    );
+  }
+
+  return filtered;
+};
+
 
   const fetchPatientTimelineFromBackend = async (patientDbId) => {
   try {
@@ -310,6 +309,87 @@ const fetchPatientsFromBackend = async () => {
 };
 
 
+// ✅ 1. Create notification (call this after diagnosis, prescription, action)
+const createNotificationOnBackend = async (message, patientId) => {
+  try {
+    const doctorName = currentUser?.name || currentUser?.username || "Unknown Doctor";
+
+    await fetch("http://192.168.230.128:5000/api/patients/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        doctor_id: currentUser.id,
+        doctor_name: doctorName,
+        message,
+        patient_id: patientId
+      })
+    });
+  } catch (err) {
+    console.error("❌ Failed to create notification:", err.message);
+  }
+};
+
+// ✅ 2. Fetch notifications from backend
+const fetchNotificationsFromBackend = async () => {
+  try {
+    const response = await fetch(`http://192.168.230.128:5000/api/patients/notifications?doctor_id=${currentUser.id}&archived=false`);
+    const data = await response.json();
+    setNotifications(data);
+  } catch (err) {
+    console.error("❌ Failed to fetch notifications:", err.message);
+  }
+};
+
+// ✅ 3. Archive all notifications
+const archiveAllNotifications = async () => {
+  try {
+    await fetch("http://192.168.230.128:5000/api/patients/notifications/archive", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        doctor_id: currentUser.id
+      })
+    });
+
+    setNotifications([]);
+
+    Toast.show({
+      type: 'success',
+      text1: '✅ All notifications archived!',
+      textStyle: {
+        fontSize: 16,   // match your other toasts' font size
+        fontWeight: 'bold'
+      },
+      visibilityTime: 2000, // show for 2 seconds
+      position: 'top',
+      autoHide: true,
+      topOffset: 50 // keep a bit below the top
+    });
+    
+  } catch (err) {
+    console.error("❌ Failed to archive notifications:", err.message);
+  }
+};
+
+
+useEffect(() => {
+  if (loggedIn && currentUser?.role === 'Doctor' && currentUser?.id && activeScreen === 'doctorDashboard') {
+    fetchPatientsFromBackend();
+    fetchNotificationsFromBackend();
+  }
+}, [activeScreen]);
+
+
+const fetchArchivedNotificationsFromBackend = async () => {
+  try {
+    const response = await fetch(`http://192.168.230.128:5000/api/patients/notifications?doctor_id=${currentUser.id}&archived=true`);
+    const data = await response.json();
+    setArchivedNotifications(data);
+  } catch (err) {
+    console.error("❌ Failed to fetch archived notifications:", err.message);
+  }
+};
+
 
   // Load saved credentials if "Remember Me" was checked
   useEffect(() => {
@@ -333,11 +413,6 @@ const fetchPatientsFromBackend = async () => {
     AsyncStorage.removeItem('users');
   }, []);
 
-  useEffect(() => {
-  if (loggedIn && currentUser?.role === 'Doctor' && activeScreen === 'doctorDashboard') {
-    fetchPatientsFromBackend();
-  }
-}, [activeScreen]);
 
 
 // 🔁 Auto-refresh for doctors every 5 seconds
@@ -629,7 +704,13 @@ const handleDiagnosisSubmit = async () => {
       })
     });
 
-    // ✅ Step 4: Update frontend state
+    // ✅ Step 4: Create Notification on backend
+    await createNotificationOnBackend(
+      `Diagnosis completed for patient ${selectedPatient.name}`,
+      selectedPatient.patientId
+    );
+
+    // ✅ Step 5: Update frontend state
     const updatedPatients = patients.map(p =>
       p.patientId === selectedPatient.patientId
         ? {
@@ -646,7 +727,7 @@ const handleDiagnosisSubmit = async () => {
     updatedPatients.sort((a, b) => (a.tempUpdated || 0) - (b.tempUpdated || 0));
     setPatients(updatedPatients);
 
-    // ✅ Step 5: UI feedback and cleanup
+    // ✅ Step 6: UI feedback and cleanup
     setDiagnosisForm({ notes: '', observations: '' });
 
     const newNotification = {
@@ -665,7 +746,6 @@ const handleDiagnosisSubmit = async () => {
     showAlert('Error', 'Failed to save diagnosis. Please try again.');
   }
 };
-
 
 
   // Prescription form submission
@@ -709,6 +789,9 @@ const handlePrescriptionSubmit = async () => {
         tests: prescriptionForm.tests
       })
     });
+
+    await createNotificationOnBackend(`Prescription added for patient ${selectedPatient.name}`, selectedPatient.patientId);
+
 
     // ✅ Step 5: Update frontend state (optional but helpful)
     const updatedPatients = patients.map(p =>
@@ -780,6 +863,9 @@ const handlePrescriptionSubmit = async () => {
         prescriptions: prevPrescriptions || null
       })
     });
+
+    await createNotificationOnBackend(`Action taken for patient ${selectedPatient.name}`, selectedPatient.patientId);
+
 
     // ✅ Step 4: Build timeline payload WITHOUT sending nulls
     const timelinePayload = {
@@ -1049,11 +1135,19 @@ const handlePrescriptionSubmit = async () => {
       const filename = `PatientReport_${patient.patientId}_${Date.now()}.pdf`;
       const newPath = `${dir}/${filename}`;
 
-      await shareAsync(uri, {
+      await FileSystem.moveAsync({
+      from: uri,
+      to: newPath
+    });
+
+        // ✅ Now share separately AFTER file is fully saved
+    setTimeout(() => {
+      shareAsync(newPath, {
         mimeType: 'application/pdf',
         dialogTitle: 'Share or Save Patient Report',
         UTI: 'com.adobe.pdf',
       });
+    }, 500);  // slight delay to avoid race condition
 
       setShowPdfCelebration(true);
 setTimeout(() => setShowPdfCelebration(false), 3000);
@@ -2212,74 +2306,79 @@ const renderProfilePage = () => (
 
       {/* TAB HEADERS */}
       <View style={{ flexDirection: 'row', marginBottom: 15 }}>
-        <TouchableOpacity
-          onPress={() => setNotificationTab('current')}
-          style={{
-            flex: 1,
-            paddingVertical: 10,
-            backgroundColor: notificationTab === 'current' ? '#1976d2' : '#e0e0e0',
-            borderTopLeftRadius: 8,
-            borderBottomLeftRadius: 8
-          }}
-        >
-          <Text style={{
-            textAlign: 'center',
-            color: notificationTab === 'current' ? 'white' : '#333',
-            fontWeight: 'bold'
-          }}>
-            Current
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setNotificationTab('archived')}
-          style={{
-            flex: 1,
-            paddingVertical: 10,
-            backgroundColor: notificationTab === 'archived' ? '#1976d2' : '#e0e0e0',
-            borderTopRightRadius: 8,
-            borderBottomRightRadius: 8
-          }}
-        >
-          <Text style={{
-            textAlign: 'center',
-            color: notificationTab === 'archived' ? 'white' : '#333',
-            fontWeight: 'bold'
-          }}>
-            Archived
-          </Text>
-        </TouchableOpacity>
-      </View>
+  <TouchableOpacity
+    onPress={() => setNotificationTab('current')}
+    style={{
+      flex: 1,
+      paddingVertical: 10,
+      backgroundColor: notificationTab === 'current' ? '#1976d2' : '#e0e0e0',
+      borderTopLeftRadius: 8,
+      borderBottomLeftRadius: 8
+    }}
+  >
+    <Text style={{
+      textAlign: 'center',
+      color: notificationTab === 'current' ? 'white' : '#333',
+      fontWeight: 'bold'
+    }}>
+      Current
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    onPress={() => {
+      setNotificationTab('archived');
+      fetchArchivedNotificationsFromBackend();  // 🔥 Fetch archived notifications here
+    }}
+    style={{
+      flex: 1,
+      paddingVertical: 10,
+      backgroundColor: notificationTab === 'archived' ? '#1976d2' : '#e0e0e0',
+      borderTopRightRadius: 8,
+      borderBottomRightRadius: 8
+    }}
+  >
+    <Text style={{
+      textAlign: 'center',
+      color: notificationTab === 'archived' ? 'white' : '#333',
+      fontWeight: 'bold'
+    }}>
+      Archived
+    </Text>
+  </TouchableOpacity>
+</View>
+
 
       {/* TAB CONTENT */}
       <FlatList
-        data={notificationTab === 'current' ? notifications : archivedNotifications}
-        keyExtractor={item => item.id.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.notificationItem}>
-            <Text style={styles.notificationMessage}>{item.message}</Text>
-            <Text style={styles.notificationTime}>
-              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.emptyListText}>
-            {notificationTab === 'current' ? 'No notifications' : 'No archived notifications'}
-          </Text>
-        }
-      />
+  data={notificationTab === 'current' ? notifications : archivedNotifications}
+  keyExtractor={item => item.id.toString()}
+  renderItem={({ item }) => (
+    <View style={styles.notificationItem}>
+      <Text style={styles.notificationMessage}>{item.message}</Text>
+      <Text style={styles.notificationTime}>
+        {new Date(item.timestamp).toLocaleDateString()} {' '}
+        {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </View>
+  )}
+  ListEmptyComponent={
+    <Text style={styles.emptyListText}>
+      {notificationTab === 'current' ? 'No notifications' : 'No archived notifications'}
+    </Text>
+  }
+/>
+
 
       {/* CLEAR BUTTON ONLY ON CURRENT TAB */}
       {notificationTab === 'current' && notifications.length > 0 && (
-        <TouchableOpacity
-          style={styles.clearNotificationsButton}
-          onPress={() => {
-            setArchivedNotifications(prev => [...prev, ...notifications]);
-            setNotifications([]);
-          }}
-        >
-          <Text style={styles.clearNotificationsText}>Clear All Notifications</Text>
-        </TouchableOpacity>
+  <TouchableOpacity
+    style={styles.clearNotificationsButton}
+    onPress={archiveAllNotifications}
+  >
+    <Text style={styles.clearNotificationsText}>Clear All Notifications</Text>
+  </TouchableOpacity>
+
       )}
     </View>
   );

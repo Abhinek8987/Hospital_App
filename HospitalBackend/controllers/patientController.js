@@ -187,7 +187,7 @@ const addTimelineEntry = async (req, res) => {
   }
 };
 
-// ✅ Get patient timeline (missing before, now fixed)
+// ✅ Get patient timeline
 const getPatientTimeline = async (req, res) => {
   const { patient_db_id } = req.params;
 
@@ -206,10 +206,73 @@ const getPatientTimeline = async (req, res) => {
   }
 };
 
+////////////////////////////
+// ✅ Notification Section ✅
+////////////////////////////
+
+// ✅ Create Notification
+const createNotification = async (req, res) => {
+  const { doctor_id, message, patient_id } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO notifications (doctor_id, message, patient_id)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [doctor_id, message, patient_id]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Error creating notification:", err.message);
+    res.status(500).json({ error: 'Failed to create notification' });
+  }
+};
+
+// ✅ Get Notifications
+const getNotifications = async (req, res) => {
+  const { doctor_id, archived } = req.query;
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM notifications 
+       WHERE doctor_id = $1 AND is_archived = $2 
+       ORDER BY timestamp DESC`,
+      [doctor_id, archived === 'true']
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching notifications:", err.message);
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+};
+
+// ✅ Archive All Notifications
+const archiveAllNotifications = async (req, res) => {
+  const { doctor_id } = req.body;
+
+  try {
+    await pool.query(
+      `UPDATE notifications SET is_archived = TRUE 
+       WHERE doctor_id = $1`,
+      [doctor_id]
+    );
+
+    res.json({ message: 'All notifications archived' });
+  } catch (err) {
+    console.error("❌ Error archiving notifications:", err.message);
+    res.status(500).json({ error: 'Failed to archive notifications' });
+  }
+};
+
+// ✅ Export all functions
 module.exports = {
   addPatient,
   getPatients,
   updatePatient,
   addTimelineEntry,
-  getPatientTimeline // ✅ This is now properly defined
+  getPatientTimeline,
+  createNotification,
+  getNotifications,
+  archiveAllNotifications
 };
