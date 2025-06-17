@@ -30,6 +30,8 @@ import Toast from 'react-native-toast-message';
 import { Vibration } from 'react-native';
 import Signature from 'react-native-signature-canvas';
 import TextRecognition from 'react-native-text-recognition';
+import * as SecureStore from 'expo-secure-store';
+
 
 
 function generatePatientId() {
@@ -65,13 +67,6 @@ const ageInputRef = useRef(null);
 const [demoNameIndex, setDemoNameIndex] = useState(-1); // Track rotation
 
   const [balloonAnim] = useState(new Animated.Value(0));
-
-  
-  const [users, setUsers] = useState([
-    { id: 1, username: 'N', password: 'N', role: 'Nurse', name: 'Nurse Jane' },
-    { id: 2, username: 'D', password: 'D', role: 'Doctor', name: 'Dr. Smith' },
-    { id: 3, username: 'D2', password: 'D2', role: 'Doctor', name: 'Dr. Johnson' },
-  ]);
 
   const startHandwritingInput = () => {
   setShowHandwritingModal(true);
@@ -357,13 +352,13 @@ const archiveAllNotifications = async () => {
       type: 'success',
       text1: '✅ All notifications archived!',
       textStyle: {
-        fontSize: 16,   // match your other toasts' font size
+        fontSize: 25,   // match your other toasts' font size
         fontWeight: 'bold'
       },
-      visibilityTime: 2000, // show for 2 seconds
+      visibilityTime: 4000, // show for 2 seconds
       position: 'top',
       autoHide: true,
-      topOffset: 50 // keep a bit below the top
+      topOffset: 100 // keep a bit below the top
     });
     
   } catch (err) {
@@ -393,25 +388,23 @@ const fetchArchivedNotificationsFromBackend = async () => {
 
   // Load saved credentials if "Remember Me" was checked
   useEffect(() => {
-    const loadCredentials = async () => {
-      try {
-        const savedUsername = await AsyncStorage.getItem('username');
-        const savedPassword = await AsyncStorage.getItem('password');
-        const savedRememberMe = await AsyncStorage.getItem('rememberMe');
+  const loadSavedCredentials = async () => {
+    const remember = await AsyncStorage.getItem('rememberMe');
 
-        if (savedRememberMe === 'true' && savedUsername && savedPassword) {
-          setUsername(savedUsername);
-          setPassword(savedPassword);
-          setRememberMe(true);
-        }
-      } catch (error) {
-        console.error('Failed to load credentials', error);
+    if (remember === 'true') {
+      const savedUsername = await SecureStore.getItemAsync('username');
+      const savedPassword = await SecureStore.getItemAsync('password');
+
+      if (savedUsername && savedPassword) {
+        setUsername(savedUsername);
+        setPassword(savedPassword);
+        setRememberMe(true);
       }
-    };
+    }
+  };
 
-    loadCredentials();
-    AsyncStorage.removeItem('users');
-  }, []);
+  loadSavedCredentials();
+}, []);
 
 
 
@@ -453,7 +446,8 @@ useEffect(() => {
   
 
   // Login function
-  const handleLogin = async () => {
+
+const handleLogin = async () => {
   try {
     console.log("🔁 Trying to log in...");
 
@@ -462,10 +456,7 @@ useEffect(() => {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        username,
-        password
-      })
+      body: JSON.stringify({ username, password })
     });
 
     const data = await response.json();
@@ -481,12 +472,12 @@ useEffect(() => {
       setShowLoginCelebration(true);
 
       if (rememberMe) {
-        await AsyncStorage.setItem('username', username);
-        await AsyncStorage.setItem('password', password);
+        await SecureStore.setItemAsync('username', username);
+        await SecureStore.setItemAsync('password', password);
         await AsyncStorage.setItem('rememberMe', 'true');
       } else {
-        await AsyncStorage.removeItem('username');
-        await AsyncStorage.removeItem('password');
+        await SecureStore.deleteItemAsync('username');
+        await SecureStore.deleteItemAsync('password');
         await AsyncStorage.setItem('rememberMe', 'false');
       }
     } else {
@@ -513,12 +504,21 @@ useEffect(() => {
 
 
 
+
+
   // Logout function
-  const handleLogout = () => {
-    setLoggedIn(false);
-    setCurrentUser(null);
-    setActiveScreen('login');
-  };
+const handleLogout = async () => {
+  setLoggedIn(false);
+  setCurrentUser(null);
+  setActiveScreen('login');
+
+  // Clean saved credentials if needed
+  await SecureStore.deleteItemAsync('username');
+  await SecureStore.deleteItemAsync('password');
+  await AsyncStorage.removeItem('rememberMe');
+};
+
+
 
   // ER Form submission
 
@@ -1203,40 +1203,6 @@ setTimeout(() => setShowPdfCelebration(false), 3000);
       default: return '•';
     }
   };
-
-  // Load data from storage on app start
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const savedPatients = await AsyncStorage.getItem('patients');
-        const savedUsers = await AsyncStorage.getItem('users');
-        const savedNotifications = await AsyncStorage.getItem('notifications');
-        
-        if (savedPatients) setPatients(JSON.parse(savedPatients));
-        if (savedUsers) setUsers(JSON.parse(savedUsers));
-        if (savedNotifications) setNotifications(JSON.parse(savedNotifications));
-      } catch (error) {
-        console.error('Failed to load data', error);
-      }
-    };
-    
-    loadData();
-  }, []);
-
-  // Save data whenever it changes
-  useEffect(() => {
-    const saveData = async () => {
-      try {
-        await AsyncStorage.setItem('patients', JSON.stringify(patients));
-        await AsyncStorage.setItem('users', JSON.stringify(users));
-        await AsyncStorage.setItem('notifications', JSON.stringify(notifications));
-      } catch (error) {
-        console.error('Failed to save data', error);
-      }
-    };
-    
-    if (loggedIn) saveData();
-  }, [patients, users, notifications, loggedIn]);
 
   // Render functions for different screens
  const renderLogin = () => (
@@ -2444,7 +2410,7 @@ const renderProfilePage = () => (
   return (
     <View style={styles.fullscreenCelebration}>
       <LottieView
-        source={require('./assets/Abhinek.json')}
+          source={require('./assets/Abhinek.json')}
         autoPlay
         loop={false}
         speed={1.2}
